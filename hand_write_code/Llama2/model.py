@@ -14,7 +14,7 @@ class ModelArgs:
     n_kv_heads: Optional[int] = None  # heads for Keys and Values'
     vocab_size: int = -1  # defined later
     multiple_of: int = 256
-    fnn_dim_multiplier: Optional[float] = None
+    ffn_dim_multiplier: Optional[float] = None
     norm_eps: float = 1e-5
 
     # Needed for KV Cache
@@ -89,6 +89,29 @@ class RMSNorm(nn.Module):
         # multiply gamma.
         # (Dim) * (B, seq_len, dim) = (B, seq_len, dim)
         return self.weight * self._norm(x.float()).type_as(x)
+
+
+class FeedForward(nn.Module):
+
+    def __init__(self, args: ModelArgs) -> None:
+        super().__init__()
+
+        hidden_dim = 4 * args.dim
+        hidden_dim = int(2 * hidden_dim / 3)
+        if args.ffn_dim_multiplier is not None:
+            hidden_dim = int(args.ffn_dim_multiplier * hidden_dim)
+        # Round the hidden_dim to the nearest multiple_of parameter
+        hidden_dim = args.multiple_of * ((hidden_dim + args.multiple_of - 1) // args.multiple_of)
+
+        self.w1 = nn.Linear(args.dim, hidden_dim, bias=False)
+        self.w2 = nn.Linear(hidden_dim, args.dim, bias=False)
+        self.w3 = nn.Linear(args.dim, hidden_dim, bias=False)
+
+    def forward(self, x: torch.Tensor):
+        swish = F.silu(self.w1(x))
+        x_V = self.w2(x)
+        x = swish * x_V
+        return self.w3(x)
 
 
 class EncoderBlock(nn.Module):
